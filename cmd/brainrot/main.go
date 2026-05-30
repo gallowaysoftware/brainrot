@@ -179,6 +179,7 @@ func makeCommand() *cobra.Command {
 		shots     int
 		narrator  string
 		publishTo string
+		preview   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "make <idea-id>",
@@ -189,16 +190,17 @@ list; phase 2 (ComfyUI + Kokoro) renders stills -> image-to-video -> voiceover -
 captioned MP4.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMake(cmd, args[0], shots, narrator, publishTo)
+			return runMake(cmd, args[0], shots, narrator, publishTo, preview)
 		},
 	}
 	cmd.Flags().IntVar(&shots, "shots", 7, "Number of shots in the video.")
 	cmd.Flags().StringVar(&narrator, "narrator", "am_fenrir", "Default Kokoro narrator voice.")
 	cmd.Flags().StringVar(&publishTo, "publish-to", "", "Directory to copy the finished final.mp4 into.")
+	cmd.Flags().BoolVar(&preview, "preview", false, "Stills-only: write the shot list + per-shot images, skip animation/voice/assembly (fast iteration).")
 	return cmd
 }
 
-func runMake(cmd *cobra.Command, id string, shots int, narrator, publishTo string) error {
+func runMake(cmd *cobra.Command, id string, shots int, narrator, publishTo string, preview bool) error {
 	l, err := idea.Open()
 	if err != nil {
 		return err
@@ -238,6 +240,22 @@ func runMake(cmd *cobra.Command, id string, shots int, narrator, publishTo strin
 
 	// Free the LLM before the image model loads — they can't co-reside on 32GB.
 	freeActiveProfile(cmd)
+
+	if preview {
+		fmt.Fprintln(cmd.OutOrStdout(), "phase 2/2 (preview): generating stills only...")
+		prevRoot, err := vamp.BuildRoot(func() (*vamp.Pipeline, error) {
+			return pipeline.BuildScenePreview(cfg)
+		})
+		if err != nil {
+			return err
+		}
+		prevRoot.SetArgs([]string{"run", "--run-dir", videoDir, "--no-cache"})
+		if err := prevRoot.Execute(); err != nil {
+			return fmt.Errorf("video %d preview: %w", n, err)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "\npreview stills: %s\n", filepath.Join(videoDir, "images"))
+		return nil
+	}
 
 	fmt.Fprintln(cmd.OutOrStdout(), "phase 2/2: rendering (image -> video -> voice -> assemble)...")
 	renderRoot, err := vamp.BuildRoot(func() (*vamp.Pipeline, error) {

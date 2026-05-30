@@ -17,6 +17,20 @@ MOST IMPORTANT RULE — make it land for a COLD viewer:
   something), shown not explained. Almost no proper nouns; if one appears, make
   its meaning obvious from what's shown.
 
+HARD VISUAL RULES (the AI renders each shot as a separate still + small motion —
+break these and the video looks broken):
+- ONE character, the SAME one, fully visible in EVERY shot, described IDENTICALLY
+  every time. Never an empty/bodiless frame, never a second person, never a crowd.
+  The character is ALONE in frame — end every image_prompt with "solo portrait,
+  she/he is completely alone, no other people, no bystanders, no reflections of
+  other people" so a stray figure can't drift into the edge.
+- The IMAGE must show exactly what the NARRATION is about. If a line mentions
+  another person or thing, do NOT use it — the camera only ever shows this one
+  character. Never reference anything that isn't in the frame.
+- MOTION must be minimal and smooth ONLY: a slow push-in, a slight sway, a subtle
+  head turn, a small hand gesture, blinking, hair/cloth drift. NEVER dancing,
+  jumping, running, flailing, big or fast action — the animator distorts on those.
+
 Tone & rules of the game:
 - TikTok is PUNCH. Shot 1 is a scroll-stopper. No throat-clearing.
 - Entertaining and a little meta/self-aware — internet-native voice, not earnest

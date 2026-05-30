@@ -74,6 +74,38 @@ func BuildSceneScript(cfg SceneConfig) (*vamp.Pipeline, error) {
 	return p.Build()
 }
 
+// BuildScenePreview is the cheap iteration pipeline: generate only the per-shot
+// stills (Qwen-Image), skipping Wan i2v / voiceover / assembly. ~30s/shot vs
+// ~2min/shot, so content quality (composition, character consistency, image vs
+// narration) can be judged fast before committing to a full render.
+func BuildScenePreview(cfg SceneConfig) (*vamp.Pipeline, error) {
+	p := vamp.New("brainrot-scene-preview").
+		Describe("Stills-only preview of a scene's shots (no animation/voice).")
+
+	p.Input("shots_file", vamp.Required(), vamp.WithDefault(cfg.ShotsFile),
+		vamp.Describe("Path to phase-1 shots.json."))
+	p.RequireService("comfyui", "http://127.0.0.1:8188",
+		"ComfyUI — Qwen-Image stills.", "vibe start comfyui")
+	p.RequireGPUMemory("~20GB (Qwen-Image)")
+
+	shots := p.Render("load_shots").
+		Prompt(`{{ readFile .inputs.shots_file }}`).
+		Output("shots_loaded.json").
+		OutputFormatJSON()
+
+	p.ComfyUI("scene_images").
+		Capability("image_gen").
+		After(shots).
+		Foreach(shots, "shot").
+		WorkflowFS(WorkflowsFS, "qwen_portrait.json").
+		Parameter("4.text", "{{ .shot.image_prompt }}").
+		Parameter("7.seed", "{{ .shot.idx }}").
+		FreeMemoryAfter().
+		Output("images/shot_{{ .shot.idx }}.png")
+
+	return p.Build()
+}
+
 // BuildSceneRender is phase 2 (ComfyUI + TTS + assembly, no LLM): per shot
 // generate a still (Qwen-Image), animate it (Wan i2v), voice the narration
 // (Kokoro), then assemble a vertical MP4 with burned captions.
