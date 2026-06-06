@@ -3,7 +3,7 @@ module github.com/gallowaysoftware/brainrot
 go 1.26.3
 
 require (
-	github.com/gallowaysoftware/vibe v0.6.2
+	github.com/gallowaysoftware/vibe v0.7.1
 	github.com/spf13/cobra v1.10.2
 )
 
@@ -16,9 +16,3 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-// brainrot builds against an in-tree vibe checkout: clone
-// github.com/gallowaysoftware/vibe as a sibling directory (../vibe). The
-// require version above is a floor; the local checkout is what actually
-// builds, since brainrot tracks vibe's contentkit/vamp packages.
-replace github.com/gallowaysoftware/vibe => ../vibe

@@ -21,10 +21,11 @@ inference stack.
 - `internal/series/` — the series-library layout and data model (`series.json`
   bible, scores, voices, episode beats; library under `$XDG_STATE_HOME/brainrot/`).
 
-Built against an **in-tree vibe checkout** (`replace => ../vibe` in `go.mod`):
-brainrot tracks vibe's `vamp` (orchestration) and `contentkit` (studio
-primitives: `Tournament`, `CritiqueRevise`, `Scorer`, `ReviewLoop`). Changes here
-often pair with changes there.
+Depends on the published **vibe** module (`github.com/gallowaysoftware/vibe`,
+v0.7.1+): brainrot uses vibe's `vamp` (orchestration) and `contentkit` (studio
+primitives: `Tournament`, `CritiqueRevise`, `Scorer`, `ReviewLoop`). When you
+need an unreleased vibe change, add a temporary `replace => ../vibe` for local
+dev — but don't commit it; bump the require to a tagged vibe release instead.
 
 ## Inner loop
 
@@ -34,8 +35,6 @@ go vet ./...
 go test ./...
 gofmt -l .          # must print nothing
 ```
-
-(Requires `../vibe` on disk, since the module `replace`s vibe to it.)
 
 ## Conventions
 

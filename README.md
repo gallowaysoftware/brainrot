@@ -11,13 +11,12 @@ Built as a set of Go-DSL pipelines on top of [vibe](https://github.com/galloways
 
 brainrot is the *pipeline*, not the inference stack. It needs a running vibe stack:
 
-- **A sibling `vibe` checkout.** `go.mod` has `replace github.com/gallowaysoftware/vibe => ../vibe`, and brainrot tracks vibe's `contentkit`/`vamp` packages. Clone vibe next to this repo:
+- **vibe installed and running.** brainrot depends on the published `github.com/gallowaysoftware/vibe` module (v0.7.1+) for its `vamp`/`contentkit` packages, and drives a running vibe daemon at runtime:
   ```
-  git clone https://github.com/gallowaysoftware/vibe          # ../vibe
-  git clone https://github.com/gallowaysoftware/brainrot      # ../brainrot
+  go install github.com/gallowaysoftware/vibe/cmd/vibe@latest
+  vibe daemon &
   ```
-  (Because of the `replace`, `go install …@latest` won't work — build from the checkout, below.)
-- **The vibe daemon** running, with a `long_form` text profile (suggested: a 27B-class model such as Qwen3.6-27B-MTP at 128k+ context).
+  Configure a `long_form` text profile (suggested: a 27B-class model such as Qwen3.6-27B-MTP at 128k+ context).
 - **ComfyUI** on `:8188` for Qwen-Image stills + Wan2.2 image-to-video (`vibe start comfyui`). The two workflow graphs are bundled under `internal/pipeline/workflows/`.
 - **Kokoro-FastAPI TTS** on `:8880` for character narration (`vibe start tts_kokoro`).
 - **ffmpeg** on `$PATH` for assembly (stills → video → voice → captioned MP4).
@@ -25,14 +24,13 @@ brainrot is the *pipeline*, not the inference stack. It needs a running vibe sta
 
 Run `brainrot doctor` to see what's up and what's missing; `brainrot activate` brings up the declared profile + services via vibe.
 
-## Build
+## Install
 
 ```bash
-# with ../vibe checked out alongside:
-cd brainrot
-go build ./...
-go install ./cmd/brainrot      # drops `brainrot` in $(go env GOPATH)/bin
+go install github.com/gallowaysoftware/brainrot/cmd/brainrot@latest
 ```
+
+Or from a checkout: `go build ./...` then `go install ./cmd/brainrot`.
 
 ## Workflow
 
