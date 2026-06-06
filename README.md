@@ -99,9 +99,9 @@ series/
     source.txt         optional raw seed mined alongside lore
     anchors/<slug>.png  optional fixed character portrait (used verbatim for monologue narrators)
     episodes/<NNN>/      per-episode run dir (shots.json, images/, final.mp4)
+    _planned/<stamp>/    staged `plan` slates for this series
   _dev/<stamp>/        full studio trace from an `ideate` run
   _rankings/<stamp>.json
-  _planned/<stamp>/    staged `plan` slates
 ```
 
 The bible is yours to hand-edit; brainrot appends to it (via `plan`) but doesn't clobber your edits.

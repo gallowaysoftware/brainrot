@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Layout is the on-disk home:
@@ -16,19 +17,27 @@ import (
 //	  series/_rankings/<ts>.json          a scored ideate batch
 type Layout struct{ Root string }
 
-func DefaultRoot() string {
+func DefaultRoot() (string, error) {
+	root := ""
 	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
-		return filepath.Join(d, "brainrot")
+		root = filepath.Join(d, "brainrot")
+	} else if home, err := os.UserHomeDir(); err == nil {
+		root = filepath.Join(home, ".local", "state", "brainrot")
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "brainrot"
+	// Refuse a relative root: with an empty HOME and no XDG_STATE_HOME we'd
+	// otherwise scatter the library under the current working directory.
+	if !filepath.IsAbs(root) {
+		return "", fmt.Errorf("cannot locate library root: set XDG_STATE_HOME or HOME to an absolute path")
 	}
-	return filepath.Join(home, ".local", "state", "brainrot")
+	return root, nil
 }
 
 func Open() (Layout, error) {
-	l := Layout{Root: DefaultRoot()}
+	root, err := DefaultRoot()
+	if err != nil {
+		return Layout{}, err
+	}
+	l := Layout{Root: root}
 	if err := os.MkdirAll(filepath.Join(l.Root, "series"), 0o755); err != nil {
 		return Layout{}, err
 	}
@@ -153,7 +162,9 @@ func ListSeries(l Layout) ([]string, error) {
 	}
 	var out []string
 	for _, e := range entries {
-		if e.IsDir() && e.Name() != "_rankings" {
+		// Skip the studio's bookkeeping dirs (_rankings, _dev, ...): they sit
+		// beside series dirs but aren't series ids.
+		if e.IsDir() && !strings.HasPrefix(e.Name(), "_") {
 			out = append(out, e.Name())
 		}
 	}

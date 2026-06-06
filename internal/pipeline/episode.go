@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/gallowaysoftware/vibe/contentkit"
 	"github.com/gallowaysoftware/vibe/vamp"
@@ -31,19 +30,20 @@ type EpisodeConfig struct {
 // multi-character scene via a diagnose-then-fix writers' room, then enumerate the
 // shots into the shots.json shape phase 2 renders.
 //
-//	draft_a/b/c   (text)   -> three independent comedic takes (varied temp)
+//	draft_a..e    (text)   -> five independent comedic takes (varied temp)
 //	bakeoff       (text)   -> bakeoff.json  — funniest version, best beats grafted
 //	critique      (text)   -> critique.json — rule audit + LAUGH AUDIT on the winner
 //	punchup       (text)   -> punched.json  — rewrite: SMIRK/FLAT shots -> real laughs
 //	recheck       (text)   -> recheck.json  — QC the REWRITE (catches regressions)
 //	polish        (text)   -> polished.json — surgical fix of recheck's notes
+//	tighten       (text)   -> tightened.json — compression pass for TikTok pacing
 //	enumerate_shots (render) -> shots.json    — {"items":[{idx,...}]} for phase 2
 //
-// A funniest-take tournament feeds two diagnose-then-fix cycles. Three drafts give
+// A funniest-take tournament feeds two diagnose-then-fix cycles. Five drafts give
 // more shots on goal; the bake-off picks/merges the funniest (comparison beats
 // single-shot for humor). The critique steps DIAGNOSE violations (incl. a harsh
 // laugh audit) so the fix passes are concrete, not "make it better"; the second
-// cycle catches problems the rewrite itself introduced.
+// cycle catches problems the rewrite itself introduced; tighten then cuts to length.
 func BuildEpisodeScript(cfg EpisodeConfig) (*vamp.Pipeline, error) {
 	if cfg.Shots <= 0 {
 		cfg.Shots = 7
@@ -85,25 +85,13 @@ func BuildEpisodeScript(cfg EpisodeConfig) (*vamp.Pipeline, error) {
 		SuggestedModel: "qwen3.6-27b-mtp-q6_k",
 	})
 
-	retry := &vamp.RetryPolicy{
-		MaxAttempts:    3,
-		InitialBackoff: 5 * time.Second,
-		MaxBackoff:     30 * time.Second,
-		RetryOn:        []string{"transient", "invalid_output"},
-	}
-
-	// Three independent drafts at varied temperatures — different comedic swings at
+	// Five independent drafts at varied temperatures — different comedic swings at
 	// the same beat. Time is cheap; more shots on goal means a funnier winner.
 	mkDraft := func(name string, temp float64) *vamp.TextStage {
-		return p.Text(name).
-			Capability("long_form").
+		return contentkit.LongFormText(p, name, temp, 12288).
 			PromptFS(PromptsFS, draftPrompt).
 			OutputFormatJSON().
-			Output(name+".json").
-			Param("temperature", temp).
-			Param("max_tokens", 12288).
-			Param("chat_template_kwargs", thinkingOff).
-			Retry(retry)
+			Output(name + ".json")
 	}
 	// Five independent swings — comedy lives in the variance, so cast a wide net
 	// and let the bake-off pick the rare gold rather than polishing one draft.
@@ -115,85 +103,55 @@ func BuildEpisodeScript(cfg EpisodeConfig) (*vamp.Pipeline, error) {
 
 	// Bake-off: head writer ships the funniest version, using the strongest draft
 	// as the spine and grafting in funnier beats from the others.
-	bakeoff := p.Text("bakeoff").
-		Capability("long_form").
+	bakeoff := contentkit.LongFormText(p, "bakeoff", 0.6, 12288).
 		After(draftA, draftB, draftC, draftD, draftE).
 		PromptFS(PromptsFS, "bakeoff.md").
 		OutputFormatJSON().
-		Output("bakeoff.json").
-		Param("temperature", 0.6).
-		Param("max_tokens", 12288).
-		Param("chat_template_kwargs", thinkingOff).
-		Retry(retry)
+		Output("bakeoff.json")
 
 	// Critique: a script doctor names every rule violation + runs a LAUGH AUDIT
 	// (LAUGH/SMIRK/FLAT per shot). Low temp, analytical — honest diagnosis.
-	critique := p.Text("critique").
-		Capability("long_form").
+	critique := contentkit.LongFormText(p, "critique", 0.2, 8192).
 		After(bakeoff).
 		PromptFS(PromptsFS, "critique.md").
 		OutputFormatJSON().
-		Output("critique.json").
-		Param("temperature", 0.2).
-		Param("max_tokens", 8192).
-		Param("chat_template_kwargs", thinkingOff).
-		Retry(retry)
+		Output("critique.json")
 
 	// Punch-up: rewrites the bake-off winner, turning SMIRK/FLAT shots into real
 	// laughs and resolving every critique note.
-	punch := p.Text("punchup").
-		Capability("long_form").
+	punch := contentkit.LongFormText(p, "punchup", 0.7, 12288).
 		After(bakeoff, critique).
 		PromptFS(PromptsFS, "punchup.md").
 		OutputFormatJSON().
-		Output("punched.json").
-		Param("temperature", 0.7).
-		Param("max_tokens", 12288).
-		Param("chat_template_kwargs", thinkingOff).
-		Retry(retry)
+		Output("punched.json")
 
 	// Recheck: a second diagnosis, this time on the REWRITE — to catch problems
 	// the punch-up introduced (a button that no longer follows, a new off-screen
 	// reference, a line/image mismatch) that the first critique never saw.
-	recheck := p.Text("recheck").
-		Capability("long_form").
+	recheck := contentkit.LongFormText(p, "recheck", 0.2, 8192).
 		After(punch).
 		PromptFS(PromptsFS, "recheck.md").
 		OutputFormatJSON().
-		Output("recheck.json").
-		Param("temperature", 0.2).
-		Param("max_tokens", 8192).
-		Param("chat_template_kwargs", thinkingOff).
-		Retry(retry)
+		Output("recheck.json")
 
 	// Polish: a surgical final pass — fix only what recheck flagged, minimally,
 	// so a strong script isn't churned (and no new problems get introduced).
-	polish := p.Text("polish").
-		Capability("long_form").
+	polish := contentkit.LongFormText(p, "polish", 0.5, 12288).
 		After(punch, recheck).
 		PromptFS(PromptsFS, "polish.md").
 		OutputFormatJSON().
-		Output("polished.json").
-		Param("temperature", 0.5).
-		Param("max_tokens", 12288).
-		Param("chat_template_kwargs", thinkingOff).
-		Retry(retry)
+		Output("polished.json")
 
 	// Tighten: a single-mandate compression pass for TikTok pacing. The writers'
 	// room reliably overshoots length (it ignores word caps in a prompt that also
 	// asks it to be funny), so a separate pass whose ONLY job is to cut — keep the
 	// funniest punch per shot, drop all setup, touch nothing but the narration —
 	// gets the runtime down where the combined prompt can't. Low temp; surgical.
-	tighten := p.Text("tighten").
-		Capability("long_form").
+	tighten := contentkit.LongFormText(p, "tighten", 0.3, 8192).
 		After(polish).
 		PromptFS(PromptsFS, "tighten.md").
 		OutputFormatJSON().
-		Output("tightened.json").
-		Param("temperature", 0.3).
-		Param("max_tokens", 8192).
-		Param("chat_template_kwargs", thinkingOff).
-		Retry(retry)
+		Output("tightened.json")
 
 	contentkit.EnumerateItems(p, contentkit.EnumerateConfig{
 		From:      tighten,

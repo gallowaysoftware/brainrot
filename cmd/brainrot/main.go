@@ -310,6 +310,9 @@ func runPlan(cmd *cobra.Command, id string, count int, apply, review bool) error
 		res, err := contentkit.ReviewLoop(cmd.InOrStdin(), cmd.OutOrStdout(), items, contentkit.ReviewActions{
 			Accept: func(it contentkit.ReviewItem) error {
 				idx := indexOfID(ranked, it.ID)
+				if idx < 0 {
+					return fmt.Errorf("no staged beat for review id %q", it.ID)
+				}
 				_, e := series.AppendEpisodes(l, id, []series.EpisodeBeat{ranked[idx].beat})
 				return e
 			},
@@ -408,20 +411,23 @@ func normalizeTitle(s string) string {
 	return b.String()
 }
 
+// indexOfID maps a ReviewItem id back to its index in ranked, or -1 if no beat
+// matches — callers must not silently fall back to ranked[0] (the wrong beat).
 func indexOfID(ranked []beatScore, id string) int {
 	for i := range ranked {
 		if fmt.Sprintf("%02d", i+1) == id {
 			return i
 		}
 	}
-	return 0
+	return -1
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n-1] + "…"
+	return string(r[:n-1]) + "…"
 }
 
 func fileExists(p string) bool {
@@ -500,9 +506,11 @@ func runMake(cmd *cobra.Command, id string, episode, shots, candidates, finalist
 	if err := os.MkdirAll(epDir, 0o755); err != nil {
 		return err
 	}
+	// A bad --narrator (typo) would 400 the TTS mid-render; fold it to the known
+	// fallback up front, the same guarantee normalizeShots applies to per-shot voices.
 	cfg := pipeline.SceneConfig{
 		Shots:         shots,
-		NarratorVoice: narrator,
+		NarratorVoice: series.NormalizeVoice(narrator),
 		ShotsFile:     filepath.Join(epDir, "shots.json"),
 	}
 	// If this series ships a fixed anchor image for its narrator (a monologue's
@@ -600,8 +608,8 @@ func runMake(cmd *cobra.Command, id string, episode, shots, candidates, finalist
 		// Writing-iteration mode: stop after the script, leave the LLM loaded so
 		// the next `make --script-only` is fast. Surface the draft + final script.
 		fmt.Fprintf(cmd.OutOrStdout(), "\nscript (final): %s\nstages:         %s\n",
-			filepath.Join(epDir, "polished.json"),
-			"draft.json -> critique.json -> punched.json -> recheck.json -> polished.json")
+			filepath.Join(epDir, "shots.json"),
+			"bakeoff.json -> critique.json -> punched.json -> recheck.json -> polished.json -> tightened.json -> shots.json")
 		return nil
 	}
 
@@ -1108,9 +1116,13 @@ func vibeRun(args ...string) error {
 }
 
 // waitReady polls an HTTP endpoint until it returns 200 or attempts run out.
+// Each probe has its own 5s timeout — http.DefaultClient has none, so a stalled
+// ComfyUI (accepting the connection but never responding) would block the poll
+// loop forever instead of failing the attempt and retrying.
 func waitReady(url string, attempts int) bool {
+	client := &http.Client{Timeout: 5 * time.Second}
 	for i := 0; i < attempts; i++ {
-		resp, err := http.Get(url)
+		resp, err := client.Get(url)
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == 200 {
@@ -1166,19 +1178,35 @@ func freeActiveProfile(cmd *cobra.Command) {
 	}
 }
 
+// copyFile copies src to dst atomically: write to a temp sibling, fsync-close,
+// then rename. The final Close is captured (not discarded) because a swallowed
+// Close hides a failed flush — a truncated final.mp4 would otherwise report
+// success. On any failure the temp file is removed and dst is left untouched.
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.Create(dst)
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".copy-*.tmp")
 	if err != nil {
 		return err
 	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
+	tmpName := tmp.Name()
+	if _, err := io.Copy(tmp, in); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, dst); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 // ---- render-judge (internal: vision-score finalist renders) ----
