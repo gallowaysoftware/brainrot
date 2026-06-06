@@ -17,5 +17,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-// In-tree vibe checkout, same pattern worldsmith / fake-crime / iitn follow.
+// brainrot builds against an in-tree vibe checkout: clone
+// github.com/gallowaysoftware/vibe as a sibling directory (../vibe). The
+// require version above is a floor; the local checkout is what actually
+// builds, since brainrot tracks vibe's contentkit/vamp packages.
 replace github.com/gallowaysoftware/vibe => ../vibe
