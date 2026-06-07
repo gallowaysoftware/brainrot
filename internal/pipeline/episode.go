@@ -3,6 +3,7 @@ package pipeline
 import (
 	"fmt"
 
+	"github.com/gallowaysoftware/brainrot/internal/series"
 	"github.com/gallowaysoftware/vibe/contentkit"
 	"github.com/gallowaysoftware/vibe/vamp"
 )
@@ -55,7 +56,7 @@ func BuildEpisodeScript(cfg EpisodeConfig) (*vamp.Pipeline, error) {
 	// other) or a single-voice monologue (one narrator delivers an escalating
 	// lore-drop over illustrated tableaux). Both share the punch-up chain.
 	draftPrompt := "episode_script.md"
-	if cfg.Format == "monologue" {
+	if cfg.Format == series.FormatMonologue {
 		draftPrompt = "episode_monologue.md"
 	}
 
@@ -64,7 +65,7 @@ func BuildEpisodeScript(cfg EpisodeConfig) (*vamp.Pipeline, error) {
 
 	format := cfg.Format
 	if format == "" {
-		format = "scene"
+		format = series.FormatScene
 	}
 
 	p.Input("series_file", vamp.Required(), vamp.WithDefault(cfg.SeriesFile),

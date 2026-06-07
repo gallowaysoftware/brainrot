@@ -2,8 +2,8 @@ package pipeline
 
 import (
 	"fmt"
-	"time"
 
+	"github.com/gallowaysoftware/vibe/contentkit"
 	"github.com/gallowaysoftware/vibe/vamp"
 )
 
@@ -14,8 +14,6 @@ type IdeateConfig struct {
 	Niche string
 	Count int // how many concepts to develop into full pitches
 }
-
-var thinkingOff = map[string]any{"enable_thinking": false}
 
 // BuildIdeate constructs the studio development pipeline:
 //
@@ -45,75 +43,43 @@ func BuildIdeate(cfg IdeateConfig) (*vamp.Pipeline, error) {
 		SuggestedModel: "qwen3.6-27b-mtp-q6_k",
 	})
 
-	retry := &vamp.RetryPolicy{
-		MaxAttempts:    3,
-		InitialBackoff: 5 * time.Second,
-		MaxBackoff:     30 * time.Second,
-		RetryOn:        []string{"transient", "invalid_output"},
-	}
-
 	// Writers' room: 4 distinct writer voices fan out a diverse concept pool.
 	// Hot for divergence; JSON gate + retry keep it valid.
-	room := p.Text("writers_room").
-		Capability("long_form").
+	room := contentkit.LongFormText(p, "writers_room", 0.95, 12288).
 		PromptFS(PromptsFS, "writers_room.md").
 		OutputFormatJSON().
-		Output("pool.json").
-		Param("temperature", 0.95).
-		Param("max_tokens", 12288).
-		Param("chat_template_kwargs", thinkingOff).
-		Retry(retry)
+		Output("pool.json")
 
 	// Development: an adversarial producers' table (champion/skeptic/showrunner)
 	// argues and narrows the pool to the Count strongest, with notes.
-	dev := p.Text("development").
-		Capability("long_form").
+	dev := contentkit.LongFormText(p, "development", 0.55, 8192).
 		After(room).
 		PromptFS(PromptsFS, "development.md").
 		OutputFormatJSON().
-		Output("development.json").
-		Param("temperature", 0.55).
-		Param("max_tokens", 8192).
-		Param("chat_template_kwargs", thinkingOff).
-		Retry(retry)
+		Output("development.json")
 
 	// Pitches: the room writes full bibles for the shortlist (the Series array).
-	pitches := p.Text("pitches").
-		Capability("long_form").
+	pitches := contentkit.LongFormText(p, "pitches", 0.7, 28672).
 		After(dev).
 		PromptFS(PromptsFS, "pitches.md").
 		OutputFormatJSON().
-		Output("series.json").
-		Param("temperature", 0.7).
-		Param("max_tokens", 28672).
-		Param("chat_template_kwargs", thinkingOff).
-		Retry(retry)
+		Output("series.json")
 
 	// Audience metrics: a data team projects scroll-stop / retention / share /
 	// follow per pitch. Cool and realist.
-	metrics := p.Text("audience_metrics").
-		Capability("long_form").
+	metrics := contentkit.LongFormText(p, "audience_metrics", 0.3, 8192).
 		After(pitches).
 		PromptFS(PromptsFS, "audience_metrics.md").
 		OutputFormatJSON().
-		Output("metrics.json").
-		Param("temperature", 0.3).
-		Param("max_tokens", 8192).
-		Param("chat_template_kwargs", thinkingOff).
-		Retry(retry)
+		Output("metrics.json")
 
 	// Greenlight: the committee scores craft, folds in the metrics, and issues a
 	// single greenlight number per series (the ranking sorts on it).
-	p.Text("greenlight").
-		Capability("long_form").
+	contentkit.LongFormText(p, "greenlight", 0.3, 10240).
 		After(pitches, metrics).
 		PromptFS(PromptsFS, "greenlight.md").
 		OutputFormatJSON().
-		Output("scores.json").
-		Param("temperature", 0.3).
-		Param("max_tokens", 10240).
-		Param("chat_template_kwargs", thinkingOff).
-		Retry(retry)
+		Output("scores.json")
 
 	return p.Build()
 }

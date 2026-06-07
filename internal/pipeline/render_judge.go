@@ -11,15 +11,16 @@ import (
 // at the ACTUAL rendered output and scores each — catching i2v distortion, garbled
 // text, off-model goblins, and image/line mismatch that a script-only judge can't.
 type RenderJudgeConfig struct {
-	// FinalistsFile is a JSON object {"finalists":[{idx,title,frames,narration}]},
-	// where "frames" is an absolute dir of sampled PNG frames for that finalist.
+	// FinalistsFile is a JSON object {"items":[{idx,title,frames,narration}]} (the
+	// "items" key is what vamp's foreach unwraps), where "frames" is an absolute
+	// dir of sampled PNG frames for that finalist.
 	FinalistsFile string
 }
 
 // BuildRenderJudge constructs the vision judge: one multimodal pass per finalist
 // (its sampled frames attached via ImageDir), scoring the rendered video. The CLI
-// reads the per-finalist scores and ships the highest. Uses the "vision" capability
-// (Gemma 3 + mmproj), which vamp activates by evicting the active profile.
+// reads the per-finalist scores and ships the highest. Uses the "vision_vl"
+// capability (Qwen3-VL-32B + mmproj), which vamp activates by evicting the active profile.
 func BuildRenderJudge(cfg RenderJudgeConfig) (*vamp.Pipeline, error) {
 	p := vamp.New("brainrot-render-judge").
 		Describe("Vision judge: look at each finalist's rendered frames, score the actual video.")
@@ -28,7 +29,7 @@ func BuildRenderJudge(cfg RenderJudgeConfig) (*vamp.Pipeline, error) {
 		vamp.Describe("Path to the finalists JSON (idx, title, frames dir, narration)."))
 
 	// Judge model: Qwen3-VL-32B (vision_vl) — stronger image understanding +
-	// OCR/gibberish detection than Gemma 3, and a stable llama.cpp vision path.
+	// OCR/gibberish detection than Gemma 3 did, and a stable llama.cpp vision path.
 	p.RequireProfile("vision_vl")
 	p.RequireGPUMemory("~24GB (Qwen3-VL-32B + mmproj)")
 	p.CapabilityModel("vision_vl", vamp.ModelHint{

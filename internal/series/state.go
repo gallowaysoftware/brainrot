@@ -80,22 +80,28 @@ func (l Layout) EpisodeDir(id string, n int) string {
 	return filepath.Join(l.SeriesDir(id), "episodes", fmt.Sprintf("%03d", n))
 }
 
-func (l Layout) uniqueID(base string) string {
+// uniqueID returns base if free, else the first base-N suffix that doesn't
+// collide. It errors rather than returning base when the suffix space is
+// exhausted — silently reusing base would clobber an existing series.
+func (l Layout) uniqueID(base string) (string, error) {
 	if _, err := os.Stat(l.SeriesDir(base)); err != nil {
-		return base
+		return base, nil
 	}
 	for i := 2; i < 10000; i++ {
 		c := fmt.Sprintf("%s-%d", base, i)
 		if _, err := os.Stat(l.SeriesDir(c)); err != nil {
-			return c
+			return c, nil
 		}
 	}
-	return base
+	return "", fmt.Errorf("no free id for %q (exhausted %s-2..%s-9999)", base, base, base)
 }
 
 // SaveSeries writes a kept series and returns its id.
 func (l Layout) SaveSeries(s Series) (string, error) {
-	id := l.uniqueID(s.Slug())
+	id, err := l.uniqueID(s.Slug())
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(l.SeriesDir(id), 0o755); err != nil {
 		return "", err
 	}

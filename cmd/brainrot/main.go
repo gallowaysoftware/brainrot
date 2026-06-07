@@ -320,7 +320,7 @@ func runPlan(cmd *cobra.Command, id string, count int, apply, review bool) error
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "\nreviewed: %d accepted, %d rejected. bible now has episodes appended.\n", res.Accepted, res.Discarded)
+		fmt.Fprintf(cmd.OutOrStdout(), "\nreviewed: %d accepted, %d rejected, %d skipped. bible now has the accepted episodes appended.\n", res.Accepted, res.Discarded, res.Skipped)
 	case apply:
 		toAdd := make([]series.EpisodeBeat, len(ranked))
 		for i, b := range ranked {
@@ -469,7 +469,7 @@ With no --episode, the next unrendered episode is written.`,
 	cmd.Flags().IntVar(&episode, "episode", 0, "Which episode to write (1-based); default = next unrendered.")
 	cmd.Flags().IntVar(&shots, "shots", 7, "Number of shots in the episode.")
 	cmd.Flags().IntVar(&candidates, "candidates", 1, "Generate N independent candidate scripts and let an editor/producer/money panel pick the one to render.")
-	cmd.Flags().IntVar(&finalists, "finalists", 1, "Two-stage funnel: render the top K panel finalists and have a vision judge pick the best actual render. Requires --candidates > K.")
+	cmd.Flags().IntVar(&finalists, "finalists", 1, "Two-stage funnel: render the top K panel finalists and have a vision judge pick the best actual render. If --candidates <= K it is bumped to 2*K.")
 	cmd.Flags().StringVar(&narrator, "narrator", series.NarratorVoice, "Default Kokoro narrator voice.")
 	cmd.Flags().StringVar(&publishTo, "publish-to", "", "Directory to copy the finished final.mp4 into.")
 	cmd.Flags().BoolVar(&preview, "preview", false, "Stills-only: write the shot list + per-shot images, skip animation/voice/assembly (fast iteration).")
@@ -1025,7 +1025,7 @@ func generateRenderSelect(cmd *cobra.Command, epCfg pipeline.EpisodeConfig, scen
 		return shipFinalist(fins[0].dir, epDir)
 	}
 
-	best, bestScore := fins[0], -1000
+	best, bestScore, scored := fins[0], -1000, false
 	for _, f := range fins {
 		sb, e := os.ReadFile(filepath.Join(candDir, "render_judge", fmt.Sprintf("%d.json", f.idx)))
 		if e != nil {
@@ -1044,9 +1044,15 @@ func generateRenderSelect(cmd *cobra.Command, epCfg pipeline.EpisodeConfig, scen
 			score -= 100
 		}
 		fmt.Fprintf(out, "  finalist %d: render_score=%d broken=%v — %s\n", f.idx, v.RenderScore, v.Broken, v.Note)
-		if score > bestScore {
-			bestScore, best = score, f
+		if !scored || score > bestScore {
+			bestScore, best, scored = score, f, true
 		}
+	}
+	// No parseable verdict: don't crown the panel-rank leader as if the vision
+	// judge picked it — fall back explicitly to the top script-panel finalist.
+	if !scored {
+		fmt.Fprintf(cmd.ErrOrStderr(), "  warn: no parseable vision verdict; shipping top script-panel finalist %d\n", fins[0].idx)
+		return shipFinalist(fins[0].dir, epDir)
 	}
 	fmt.Fprintf(out, "  WINNER: finalist %d\n", best.idx)
 	return shipFinalist(best.dir, epDir)
@@ -1072,12 +1078,25 @@ func joinNarration(shots []map[string]any) string {
 }
 
 // extractFrames samples ~1 frame / 2s from an MP4 (scaled to 512 wide) into dir.
+// It treats "ffmpeg succeeded but wrote zero frames" as an error: an empty frame
+// dir would silently feed the vision judge nothing, which it can't catch.
 func extractFrames(mp4, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return exec.Command("ffmpeg", "-nostdin", "-loglevel", "error", "-y",
-		"-i", mp4, "-vf", "fps=1/2,scale=512:-1", filepath.Join(dir, "f_%02d.png")).Run()
+	pattern := filepath.Join(dir, "f_%02d.png")
+	if out, err := exec.Command("ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+		"-i", mp4, "-vf", "fps=1/2,scale=512:-1", pattern).CombinedOutput(); err != nil {
+		return fmt.Errorf("ffmpeg extract frames: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	frames, err := filepath.Glob(filepath.Join(dir, "f_*.png"))
+	if err != nil {
+		return err
+	}
+	if len(frames) == 0 {
+		return fmt.Errorf("ffmpeg produced no frames from %s", mp4)
+	}
+	return nil
 }
 
 // stripFences extracts the {...} JSON span from text that may be wrapped in

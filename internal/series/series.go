@@ -119,13 +119,24 @@ func (s *Score) Rank() int {
 	return s.Total * 100 / 60
 }
 
+// isJSONObject reports whether t's first non-space byte is '{' — i.e. the
+// payload is a wrapper object, not a bare array. Used to pick the decode shape
+// structurally, so an EMPTY wrapped array ({"series":[]}) decodes cleanly to an
+// empty slice instead of falling through to a bare-array decode that then fails.
+func isJSONObject(t string) bool {
+	return strings.HasPrefix(strings.TrimLeft(t, " \t\r\n"), "{")
+}
+
 // ParseSeriesList decodes a JSON array of series (or {"series":[...]}).
 func ParseSeriesList(b []byte) ([]Series, error) {
 	t := strings.TrimSpace(string(b))
-	var wrap struct {
-		Series []Series `json:"series"`
-	}
-	if err := json.Unmarshal([]byte(t), &wrap); err == nil && len(wrap.Series) > 0 {
+	if isJSONObject(t) {
+		var wrap struct {
+			Series []Series `json:"series"`
+		}
+		if err := json.Unmarshal([]byte(t), &wrap); err != nil {
+			return nil, fmt.Errorf("parse series: %w", err)
+		}
 		return wrap.Series, nil
 	}
 	var arr []Series
@@ -139,10 +150,13 @@ func ParseSeriesList(b []byte) ([]Series, error) {
 // array of episode beats.
 func ParseEpisodeBeats(b []byte) ([]EpisodeBeat, error) {
 	t := strings.TrimSpace(string(b))
-	var wrap struct {
-		Episodes []EpisodeBeat `json:"episodes"`
-	}
-	if err := json.Unmarshal([]byte(t), &wrap); err == nil && len(wrap.Episodes) > 0 {
+	if isJSONObject(t) {
+		var wrap struct {
+			Episodes []EpisodeBeat `json:"episodes"`
+		}
+		if err := json.Unmarshal([]byte(t), &wrap); err != nil {
+			return nil, fmt.Errorf("parse episode beats: %w", err)
+		}
 		return wrap.Episodes, nil
 	}
 	var arr []EpisodeBeat
@@ -158,12 +172,15 @@ func ApplyScores(list []Series, scoredJSON []byte) error {
 	var scored []struct {
 		Score *Score `json:"score"`
 	}
-	var wrap struct {
-		Series []struct {
-			Score *Score `json:"score"`
-		} `json:"series"`
-	}
-	if err := json.Unmarshal([]byte(t), &wrap); err == nil && len(wrap.Series) > 0 {
+	if isJSONObject(t) {
+		var wrap struct {
+			Series []struct {
+				Score *Score `json:"score"`
+			} `json:"series"`
+		}
+		if err := json.Unmarshal([]byte(t), &wrap); err != nil {
+			return fmt.Errorf("parse scores: %w", err)
+		}
 		for i := range wrap.Series {
 			scored = append(scored, struct {
 				Score *Score `json:"score"`

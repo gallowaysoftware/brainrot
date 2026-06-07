@@ -1,6 +1,10 @@
 package series
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 const sampleList = `{"series":[
   {"title":"The Night Shift","logline":"Two gas-station clerks vs the supernatural.",
@@ -30,6 +34,119 @@ func TestParseSeriesList(t *testing.T) {
 	}
 	if list[0].Cast[1].VoiceID != "af_nicole" {
 		t.Errorf("cast voice not parsed: %q", list[0].Cast[1].VoiceID)
+	}
+}
+
+// An empty wrapped array is a valid, distinct result from a parse error: a model
+// that returns {"series":[]} means "nothing", not "malformed". The structural
+// (object-vs-array) detection must surface it as an empty slice, no error.
+func TestParseSeriesEmptyWrapped(t *testing.T) {
+	list, err := ParseSeriesList([]byte(`{"series":[]}`))
+	if err != nil {
+		t.Fatalf("empty wrapped series should not error: %v", err)
+	}
+	if len(list) != 0 {
+		t.Errorf("want empty slice, got %d series", len(list))
+	}
+}
+
+func TestParseEpisodeBeats(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"wrapped", `{"episodes":[{"title":"a","beat":"b","button":"c"},{"title":"d","beat":"e","button":"f"}]}`, 2},
+		{"bare-array", `[{"title":"a","beat":"b","button":"c"}]`, 1},
+		{"empty-wrapped", `{"episodes":[]}`, 0},
+		{"leading-space-wrapped", "  \n{\"episodes\":[{\"title\":\"a\",\"beat\":\"b\",\"button\":\"c\"}]}", 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			beats, err := ParseEpisodeBeats([]byte(c.in))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(beats) != c.want {
+				t.Errorf("got %d beats, want %d", len(beats), c.want)
+			}
+		})
+	}
+	if _, err := ParseEpisodeBeats([]byte(`not json`)); err == nil {
+		t.Error("malformed input should error")
+	}
+}
+
+func TestEpisodeFormat(t *testing.T) {
+	cases := map[string]string{
+		"":          FormatScene,     // default
+		"scene":     FormatScene,     // explicit
+		"monologue": FormatMonologue, // explicit
+		"garbage":   FormatScene,     // unknown folds to the default
+	}
+	for in, want := range cases {
+		if got := (Series{Format: in}).EpisodeFormat(); got != want {
+			t.Errorf("EpisodeFormat(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSlugify(t *testing.T) {
+	cases := map[string]string{
+		"Codex":          "codex",
+		"The Coat Saga!": "the-coat-saga",
+		"  Sootlip  ":    "sootlip",
+		"A--B":           "a-b",
+	}
+	for in, want := range cases {
+		if got := Slugify(in); got != want {
+			t.Errorf("Slugify(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// uniqueID must never reuse an occupied base id (that would clobber an existing
+// series). It suffixes on collision and errors only when the suffix space is
+// exhausted.
+func TestUniqueID(t *testing.T) {
+	l := Layout{Root: t.TempDir()}
+	mk := func(id string) {
+		if err := os.MkdirAll(l.SeriesDir(id), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got, err := l.uniqueID("goblin-town"); err != nil || got != "goblin-town" {
+		t.Fatalf("free base: got %q err %v, want goblin-town", got, err)
+	}
+	mk("goblin-town")
+	if got, err := l.uniqueID("goblin-town"); err != nil || got != "goblin-town-2" {
+		t.Fatalf("first collision: got %q err %v, want goblin-town-2", got, err)
+	}
+	mk("goblin-town-2")
+	if got, err := l.uniqueID("goblin-town"); err != nil || got != "goblin-town-3" {
+		t.Fatalf("second collision: got %q err %v, want goblin-town-3", got, err)
+	}
+}
+
+func TestNextEpisode(t *testing.T) {
+	l := Layout{Root: t.TempDir()}
+	id := "show"
+	if got := NextEpisode(l, id); got != 1 {
+		t.Fatalf("no episodes yet: NextEpisode = %d, want 1", got)
+	}
+	// Mark episodes 1 and 2 done (final.mp4 present); 3 is the next gap.
+	for n := 1; n <= 2; n++ {
+		dir := l.EpisodeDir(id, n)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "final.mp4"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := NextEpisode(l, id); got != 3 {
+		t.Errorf("NextEpisode = %d, want 3", got)
 	}
 }
 

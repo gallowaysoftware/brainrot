@@ -34,7 +34,12 @@ go build ./...
 go vet ./...
 go test ./...
 gofmt -l .          # must print nothing
+golangci-lint run ./...   # must report 0 issues
+go mod tidy && git diff --exit-code go.mod go.sum   # must be clean
 ```
+
+The last two gate CI (`.github/workflows/ci.yml`): a lint hit or an untidy
+`go.mod`/`go.sum` fails the build, so run them before pushing.
 
 ## Conventions
 

@@ -53,10 +53,11 @@ verbatim instead:
   rewrite chain can't strip it (a model-emitted field wouldn't survive bakeoff →
   punch-up → polish → tighten).
 - `pipeline.SceneConfig.AnchorDir` + `stillStages` (scene.go) split phase-2 stills:
-  non-anchored shots go to Qwen as before; anchored shots are passed through
-  verbatim via a `LoadImage → SaveImage` ComfyUI graph (`anchor_passthrough.json`)
-  to `images/shot_<idx>.png`, then animated by Wan normally. Disjoint idx sets, so
-  the animate/preview step reads a complete set. Entirely additive — a series with
+  a `split_generated` render stage filters anchored shots OUT of generation so only
+  non-anchored shots cost a Qwen still; anchored shots are never generated. The Wan
+  i2v start-image (`animateInput`) then animates each anchored shot's fixed
+  `anchors/<slug>.png` directly (Wan's InputImage accepts the absolute path), while
+  every other shot animates its generated still. Entirely additive — a series with
   no `anchors/` dir renders exactly as before.
 
 Net: the Codex orb (a proper HAL-style green lens, made off-pipeline) is pixel-

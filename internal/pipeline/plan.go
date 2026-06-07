@@ -99,6 +99,5 @@ func BuildPlan(cfg PlanConfig) (*vamp.Pipeline, error) {
 		OutputFormatJSON().
 		Output("scores.json")
 
-	_ = write
 	return p.Build()
 }
